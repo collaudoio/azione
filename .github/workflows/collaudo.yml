@@ -5,9 +5,10 @@
 #   permissions: { contents: read, id-token: write }
 #   jobs:
 #     collaudo:
-#       if: vars.COLLAUDO_CONTRATTO != ''
 #       uses: collaudoio/azione/.github/workflows/collaudo.yml@v1
-#       with: { contratto: "${{ vars.COLLAUDO_CONTRATTO }}" }
+#
+# Il contratto lo trova il servizio dal repository; nella beta il cliente lo apre spingendo
+# `.collaudo/contratto.json` sul ramo principale (C-0053).
 #
 # Il token OIDC di questo job porta `job_workflow_ref: collaudoio/azione/.github/workflows/collaudo.yml@refs/tags/v1`
 # e il servizio non dà ordini a nessun altro (`WORKFLOW_FIDATI`): un workflow scritto a mano nel repository
@@ -21,9 +22,10 @@ on:
   workflow_call:
     inputs:
       contratto:
-        description: "L'identificativo del contratto Collaudo."
-        required: true
+        description: "L'identificativo del contratto Collaudo. Facoltativo: senza, lo trova il servizio dal repository."
+        required: false
         type: string
+        default: ""
       node-version:
         description: "La versione di Node del progetto."
         required: false
@@ -63,7 +65,7 @@ jobs:
         env:
           INSTALLA: ${{ inputs.installa }}
         run: bash -c "$INSTALLA"
-      - uses: collaudoio/azione@979265c9584ca8ad86013d1fd1ac2449b36550e6
+      - uses: collaudoio/azione@cf19703adcdc5280ba08aa096fda6950ee4fc1c4
         with:
           contratto: ${{ inputs.contratto }}
           comando: ${{ inputs.comando }}

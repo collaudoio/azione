@@ -7,8 +7,8 @@ description: "Esegue l'ordine del servizio di Collaudo (prova, suite, toppe) e s
 author: "collaudoio"
 inputs:
   contratto:
-    description: "L'identificativo del contratto Collaudo."
-    required: true
+    description: "L'identificativo del contratto Collaudo. Facoltativo: senza, il servizio trova il contratto del repository (o lo apre dal suo .collaudo/contratto.json sul ramo principale)."
+    required: false
   servizio:
     description: "L'indirizzo del servizio dei verdetti."
     required: false

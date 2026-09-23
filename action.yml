@@ -1,11 +1,18 @@
 # collaudoio/azione — esegue l'ORDINE del servizio di Collaudo NELLA CI del cliente e spedisce i fatti
-# grezzi. È muta: non giudica niente, il giudizio sta nel servizio (C-0039, C-0043). Il job che la usa dichiara:
-#   permissions: { contents: read, id-token: write }
-# e nient'altro: l'azione non scrive nel repository e non ha token con potere di scrittura.
+# grezzi. È muta: non giudica niente, il giudizio sta nel servizio (C-0039, C-0043). Gira in TRE fasi, una
+# per job del workflow fidato (C-0056): `ordine` e `spedisci` nei job con `id-token: write` e senza il codice
+# del cliente; `esegui` nel job col codice del cliente e SENZA token (se il token c'è, rifiuta di partire).
+# L'azione non scrive nel repository e non ha token con potere di scrittura.
 name: "Collaudo"
 description: "Esegue l'ordine del servizio di Collaudo (prova, suite, toppe) e spedisce i fatti grezzi, firmati dall'identità OIDC del workflow."
 author: "collaudoio"
 inputs:
+  fase:
+    description: "ordine | esegui | spedisci: il job in cui gira (C-0056)."
+    required: true
+  cartella:
+    description: "La cartella del passaggio fra i job (ordine.json, fatti.json), portata come artefatto."
+    required: false
   contratto:
     description: "L'identificativo del contratto Collaudo. Facoltativo: senza, il servizio trova il contratto del repository (o lo apre dal suo .collaudo/contratto.json sul ramo principale)."
     required: false
@@ -20,6 +27,9 @@ inputs:
   uso-ai:
     description: "Solo alla consegna e SOLO se il servizio non ha l'app GitHub (con l'app vale la casella nella descrizione della PR, C-0030): il produttore dichiara se ha usato l'AI (true/false)."
     required: false
+outputs:
+  ordine:
+    description: "Solo nella fase ordine: «si» (senza accento: è un confronto nel workflow) se c'è un ordine da eseguire, «no» se il servizio non ha niente da fare."
 runs:
   using: "node24"
   main: "dist/main.js"

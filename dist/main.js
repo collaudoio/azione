@@ -1,3 +1,51 @@
+// packages/azione/src/main.ts
+import { tmpdir as tmpdir2 } from "node:os";
+import { join as join2 } from "node:path";
+
+// packages/cervello/src/contromutazione/applica.ts
+function applicaMutazione(sorgente, m) {
+  if (m.cerca === "" || m.cerca === m.sostituisci) return null;
+  if (m.riga === void 0) {
+    const i2 = sorgente.indexOf(m.cerca);
+    if (i2 < 0) return null;
+    return sorgente.slice(0, i2) + m.sostituisci + sorgente.slice(i2 + m.cerca.length);
+  }
+  const righe = sorgente.split("\n");
+  const r = righe[m.riga - 1];
+  if (r === void 0) return null;
+  const i = r.indexOf(m.cerca);
+  if (i < 0) return null;
+  righe[m.riga - 1] = r.slice(0, i) + m.sostituisci + r.slice(i + m.cerca.length);
+  return righe.join("\n");
+}
+
+// packages/app/src/protocollo.ts
+var LIMITI = {
+  ordineByte: 4 * 1024 * 1024,
+  corse: 64,
+  rapportoByte: 4 * 1024 * 1024,
+  /** Oltre, una stringa del rapporto (una traccia dello stack) si accorcia: il servizio ne legge il prefisso. */
+  stringa: 4096
+};
+var testo = (x) => typeof x === "string";
+var oggetto = (x) => typeof x === "object" && x !== null && !Array.isArray(x);
+var dizionarioDiTesti = (x) => oggetto(x) && Object.values(x).every(testo);
+function \u00E8Toppa(x) {
+  return oggetto(x) && testo(x.file) && testo(x.cerca) && testo(x.sostituisci) && (x.riga === void 0 || typeof x.riga === "number");
+}
+function \u00E8Ordine(x) {
+  if (!oggetto(x)) return false;
+  return testo(x.id) && testo(x.contratto) && testo(x.sha) && typeof x.scadeIl === "number" && dizionarioDiTesti(x.scrivi) && Array.isArray(x.corse) && x.corse.every(
+    (c) => oggetto(c) && testo(c.id) && Array.isArray(c.toppe) && c.toppe.every(\u00E8Toppa) && (c.soloFile === void 0 || Array.isArray(c.soloFile) && c.soloFile.every(testo))
+  ) && Array.isArray(x.leggi) && x.leggi.every(testo) && Array.isArray(x.impronta) && x.impronta.every(testo);
+}
+function \u00E8Risultati(x) {
+  if (!oggetto(x)) return false;
+  return testo(x.ordine) && testo(x.contratto) && testo(x.commit) && testo(x.repository) && testo(x.radice) && Array.isArray(x.corse) && x.corse.every(
+    (c) => oggetto(c) && testo(c.id) && typeof c.applicata === "boolean" && typeof c.eseguitaIl === "number"
+  ) && oggetto(x.letti) && Object.values(x.letti).every((v) => v === null || testo(v)) && dizionarioDiTesti(x.impronte) && (x.dichiarazione === void 0 || oggetto(x.dichiarazione) && typeof x.dichiarazione.usoAI === "boolean");
+}
+
 // packages/verifica/src/crypto-node.ts
 import {
   createHash,
@@ -53,7 +101,9 @@ var crittografiaNode = {
 // packages/azione/src/banco-node.ts
 import { spawnSync } from "node:child_process";
 import {
+  appendFileSync,
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   realpathSync,
@@ -92,6 +142,18 @@ function argomentiSuite(modello, uscita, soloFile) {
     return [p.replaceAll("{uscita}", uscita)];
   });
 }
+var AMBIENTE_AMMESSO = [
+  /^(?:PATH|HOME|USER|SHELL|TMPDIR|TMP|TEMP|LANG|TZ|TERM)$/,
+  /^LC_/,
+  /^NODE_/,
+  /^npm_config_/i
+];
+function ambienteDellaSuite(ambiente) {
+  const fuori = { CI: "1" };
+  for (const [nome, valore] of Object.entries(ambiente))
+    if (valore !== void 0 && AMBIENTE_AMMESSO.some((re) => re.test(nome))) fuori[nome] = valore;
+  return fuori;
+}
 function bancoNode(o) {
   const radice = realpathSync(normalize(o.radice));
   const modello = o.comandoSuite ?? COMANDO_SUITE_PREDEFINITO;
@@ -118,7 +180,7 @@ function bancoNode(o) {
         cwd: radice,
         stdio: "ignore",
         timeout: tempoMassimo,
-        env: { ...process.env, CI: "1" }
+        env: ambienteDellaSuite(process.env)
       });
       if (!existsSync(uscita)) return null;
       try {
@@ -134,43 +196,29 @@ function shaDi(radice, riferimento = "HEAD") {
   if (r.status !== 0) throw new Error(`git rev-parse ${riferimento}: ${(r.stderr ?? "").trim()}`);
   return r.stdout.trim();
 }
-
-// packages/cervello/src/contromutazione/applica.ts
-function applicaMutazione(sorgente, m) {
-  if (m.cerca === "" || m.cerca === m.sostituisci) return null;
-  if (m.riga === void 0) {
-    const i2 = sorgente.indexOf(m.cerca);
-    if (i2 < 0) return null;
-    return sorgente.slice(0, i2) + m.sostituisci + sorgente.slice(i2 + m.cerca.length);
-  }
-  const righe = sorgente.split("\n");
-  const r = righe[m.riga - 1];
-  if (r === void 0) return null;
-  const i = r.indexOf(m.cerca);
-  if (i < 0) return null;
-  righe[m.riga - 1] = r.slice(0, i) + m.sostituisci + r.slice(i + m.cerca.length);
-  return righe.join("\n");
-}
-
-// packages/app/src/protocollo.ts
-var LIMITI = {
-  ordineByte: 4 * 1024 * 1024,
-  corse: 64,
-  rapportoByte: 4 * 1024 * 1024,
-  /** Oltre, una stringa del rapporto (una traccia dello stack) si accorcia: il servizio ne legge il prefisso. */
-  stringa: 4096
-};
-var testo = (x) => typeof x === "string";
-var oggetto = (x) => typeof x === "object" && x !== null && !Array.isArray(x);
-var dizionarioDiTesti = (x) => oggetto(x) && Object.values(x).every(testo);
-function \u00E8Toppa(x) {
-  return oggetto(x) && testo(x.file) && testo(x.cerca) && testo(x.sostituisci) && (x.riga === void 0 || typeof x.riga === "number");
-}
-function \u00E8Ordine(x) {
-  if (!oggetto(x)) return false;
-  return testo(x.id) && testo(x.contratto) && testo(x.sha) && typeof x.scadeIl === "number" && dizionarioDiTesti(x.scrivi) && Array.isArray(x.corse) && x.corse.every(
-    (c) => oggetto(c) && testo(c.id) && Array.isArray(c.toppe) && c.toppe.every(\u00E8Toppa) && (c.soloFile === void 0 || Array.isArray(c.soloFile) && c.soloFile.every(testo))
-  ) && Array.isArray(x.leggi) && x.leggi.every(testo) && Array.isArray(x.impronta) && x.impronta.every(testo);
+function passaggioSuDisco(cartella, fileUscite) {
+  const percorso = (nome) => join(cartella, `${nome}.json`);
+  return {
+    leggi(nome, limiteByte) {
+      const p = percorso(nome);
+      if (!existsSync(p)) return null;
+      const testo2 = readFileSync(p, "utf8");
+      if (Buffer.byteLength(testo2) > limiteByte) throw new Error(`${nome}.json supera ${limiteByte} byte`);
+      try {
+        return JSON.parse(testo2);
+      } catch {
+        throw new Error(`${nome}.json non \xE8 JSON`);
+      }
+    },
+    scrivi(nome, valore) {
+      mkdirSync(cartella, { recursive: true });
+      writeFileSync(percorso(nome), JSON.stringify(valore), "utf8");
+    },
+    uscita(nome, valore) {
+      if (fileUscite) appendFileSync(fileUscite, `${nome}=${valore}
+`, "utf8");
+    }
+  };
 }
 
 // packages/azione/src/esegui.ts
@@ -307,44 +355,86 @@ async function motiviDi(risposta) {
 }
 
 // packages/azione/src/main.ts
+var FASI = ["ordine", "esegui", "spedisci"];
 var input = (amb, nome) => {
   const v = amb[`INPUT_${nome.toUpperCase().replaceAll("-", "_")}`];
   return v === void 0 || v === "" ? void 0 : v;
 };
-async function main(amb = process.env, rete = fetch) {
-  const servizio = (input(amb, "servizio") ?? "https://api.collaudo.io").replace(/\/+$/, "");
-  const scelto = input(amb, "contratto");
-  const comando = input(amb, "comando");
-  const banco = bancoNode({
-    radice: amb.GITHUB_WORKSPACE ?? process.cwd(),
-    ...comando ? { comandoSuite: comando } : {}
-  });
-  const commit = shaDi(banco.radice);
-  const ordinato = await leggiOrdine(rete, servizio, scelto, await tokenOidc(rete, amb));
+var servizioDi = (amb) => (input(amb, "servizio") ?? "https://api.collaudo.io").replace(/\/+$/, "");
+var LIMITE_FATTI = LIMITI.corse * LIMITI.rapportoByte + LIMITI.ordineByte;
+function ordineLasciato(p) {
+  const o = p.leggi("ordine", LIMITI.ordineByte);
+  if (o === null) throw new Error("il job dell'ordine non ha lasciato nessun ordine");
+  if (!\u00E8Ordine(o)) throw new Error("l'ordine lasciato non ha la forma attesa");
+  return o;
+}
+async function faseOrdine(amb, rete, p) {
+  const ordinato = await leggiOrdine(
+    rete,
+    servizioDi(amb),
+    input(amb, "contratto"),
+    await tokenOidc(rete, amb)
+  );
   if ("niente" in ordinato) {
     console.log(`::notice title=Collaudo::${ordinato.niente}`);
     console.log(`collaudoio \xB7 niente da fare: ${ordinato.niente}`);
+    p.uscita("ordine", "no");
     return;
   }
-  const { ordine } = ordinato;
-  const contratto = ordine.contratto;
+  p.scrivi("ordine", ordinato.ordine);
+  p.uscita("ordine", "si");
+  console.log(
+    `collaudoio \xB7 ${ordinato.ordine.contratto} \xB7 ordine ricevuto: ${ordinato.ordine.corse.length} corse`
+  );
+}
+function faseEsegui(amb, p, banco) {
+  if (amb.ACTIONS_ID_TOKEN_REQUEST_URL || amb.ACTIONS_ID_TOKEN_REQUEST_TOKEN)
+    throw new Error(
+      "il job che esegue il codice del cliente non deve avere `id-token: write`: il token lo coniano solo i job dell'ordine e della spedizione"
+    );
+  const ordine = ordineLasciato(p);
+  const b = banco(amb.GITHUB_WORKSPACE ?? process.cwd());
+  const commit = shaDi(b.radice);
   if (ordine.sha !== commit)
     throw new Error(`l'ordine vale sul commit ${ordine.sha}, il checkout \xE8 ${commit}`);
-  const eseguito = eseguiOrdine(banco, ordine);
+  p.scrivi("fatti", eseguiOrdine(b, ordine));
+  console.log(
+    `collaudoio \xB7 ${ordine.contratto} \xB7 ${commit.slice(0, 12)} \xB7 ${ordine.corse.length} corse eseguite`
+  );
+}
+async function faseSpedisci(amb, rete, p) {
+  const ordine = ordineLasciato(p);
+  const fatti = p.leggi("fatti", LIMITE_FATTI);
+  if (fatti === null) throw new Error("il job dell'esecuzione non ha lasciato i fatti");
   const usoAI = input(amb, "uso-ai");
   const risultati = {
     ordine: ordine.id,
-    contratto,
-    commit,
+    contratto: ordine.contratto,
+    commit: ordine.sha,
     repository: amb.GITHUB_REPOSITORY ?? "",
-    ...eseguito,
+    radice: fatti.radice,
+    corse: fatti.corse,
+    letti: fatti.letti,
+    impronte: fatti.impronte,
     ...usoAI === void 0 ? {} : { dichiarazione: { usoAI: usoAI === "true" || usoAI === "s\xEC" } }
   };
-  const ricevuta = await spedisciRisultati(rete, servizio, await tokenOidc(rete, amb), risultati);
-  console.log(
-    `collaudoio \xB7 ${contratto} \xB7 ${commit.slice(0, 12)} \xB7 ${ordine.corse.length} corse eseguite \xB7 risultati spediti`
-  );
+  if (!\u00E8Risultati(risultati)) throw new Error("i fatti lasciati dall'esecuzione non hanno la forma attesa");
+  const ricevuta = await spedisciRisultati(rete, servizioDi(amb), await tokenOidc(rete, amb), risultati);
+  console.log(`collaudoio \xB7 ${ordine.contratto} \xB7 ${ordine.sha.slice(0, 12)} \xB7 risultati spediti`);
   console.log(JSON.stringify(ricevuta));
+}
+async function main(amb = process.env, rete = fetch) {
+  const fase = input(amb, "fase");
+  if (!FASI.includes(fase))
+    throw new Error(`fase sconosciuta: ${fase ?? "(nessuna)"}; attese: ${FASI.join(", ")}`);
+  const p = passaggioSuDisco(
+    input(amb, "cartella") ?? join2(amb.RUNNER_TEMP ?? tmpdir2(), "collaudo"),
+    amb.GITHUB_OUTPUT
+  );
+  if (fase === "ordine") return faseOrdine(amb, rete, p);
+  if (fase === "spedisci") return faseSpedisci(amb, rete, p);
+  const comando = input(amb, "comando");
+  faseEsegui(amb, p, (radice) => bancoNode({ radice, ...comando ? { comandoSuite: comando } : {} }));
 }
 if (process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).href) {
   main().catch((e) => {
@@ -353,5 +443,9 @@ if (process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).
   });
 }
 export {
+  FASI,
+  faseEsegui,
+  faseOrdine,
+  faseSpedisci,
   main
 };

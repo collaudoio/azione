@@ -1,4 +1,4 @@
-// packages/cervello/src/verdetto/crypto-node.ts
+// packages/verifica/src/crypto-node.ts
 import {
   createHash,
   createPrivateKey,
@@ -8,7 +8,7 @@ import {
   verify
 } from "node:crypto";
 
-// packages/cervello/src/verdetto/impronta.ts
+// packages/verifica/src/impronta.ts
 function decodificaHex(hex) {
   if (hex.length % 2 !== 0)
     throw new Error(`decodificaHex: ${hex.length} caratteri, un esadecimale ne ha un numero pari`);
@@ -19,7 +19,7 @@ function decodificaHex(hex) {
   return byte;
 }
 
-// packages/cervello/src/verdetto/crypto-node.ts
+// packages/verifica/src/crypto-node.ts
 var PREFISSO_PKCS8 = decodificaHex("302e020100300506032b657004220420");
 var PREFISSO_SPKI = decodificaHex("302a300506032b6570032100");
 var BYTE_CHIAVE = 32;

@@ -234,12 +234,14 @@ function eseguiOrdine(banco, ordine) {
 var AUDIENCE = "collaudo.io";
 var indirizzo = (servizio, contratto, cosa) => `${servizio}/contratti/${encodeURIComponent(contratto)}/${cosa}`;
 async function leggiOrdine(rete, servizio, contratto, token) {
-  const risposta = await rete(indirizzo(servizio, contratto, "ordine"), {
+  const dove = contratto ? indirizzo(servizio, contratto, "ordine") : `${servizio}/ordine`;
+  const chi = contratto ?? "questo repository";
+  const risposta = await rete(dove, {
     headers: { authorization: `Bearer ${token}`, accept: "application/json" }
   });
   if (!risposta.ok)
     throw new Error(
-      `il servizio non d\xE0 l'ordine di ${contratto}: HTTP ${risposta.status}${await motiviDi(risposta)}`
+      `il servizio non d\xE0 l'ordine di ${chi}: HTTP ${risposta.status}${await motiviDi(risposta)}`
     );
   const testo2 = await risposta.text();
   if (testo2.length > LIMITI.ordineByte)
@@ -248,10 +250,12 @@ async function leggiOrdine(rete, servizio, contratto, token) {
   try {
     corpo = JSON.parse(testo2);
   } catch {
-    throw new Error(`l'ordine di ${contratto} non \xE8 JSON`);
+    throw new Error(`l'ordine di ${chi} non \xE8 JSON`);
   }
-  if (!\u00E8Ordine(corpo)) throw new Error(`l'ordine di ${contratto} non ha la forma attesa`);
-  return corpo;
+  const niente = corpo?.niente;
+  if (typeof niente === "string") return { niente };
+  if (!\u00E8Ordine(corpo)) throw new Error(`l'ordine di ${chi} non ha la forma attesa`);
+  return { ordine: corpo };
 }
 async function tokenOidc(rete, ambiente, audience = AUDIENCE) {
   const url = ambiente.ACTIONS_ID_TOKEN_REQUEST_URL;
@@ -309,15 +313,21 @@ var input = (amb, nome) => {
 };
 async function main(amb = process.env, rete = fetch) {
   const servizio = (input(amb, "servizio") ?? "https://api.collaudo.io").replace(/\/+$/, "");
-  const contratto = input(amb, "contratto");
-  if (!contratto) throw new Error("manca l'input `contratto`");
+  const scelto = input(amb, "contratto");
   const comando = input(amb, "comando");
   const banco = bancoNode({
     radice: amb.GITHUB_WORKSPACE ?? process.cwd(),
     ...comando ? { comandoSuite: comando } : {}
   });
   const commit = shaDi(banco.radice);
-  const ordine = await leggiOrdine(rete, servizio, contratto, await tokenOidc(rete, amb));
+  const ordinato = await leggiOrdine(rete, servizio, scelto, await tokenOidc(rete, amb));
+  if ("niente" in ordinato) {
+    console.log(`::notice title=Collaudo::${ordinato.niente}`);
+    console.log(`collaudoio \xB7 niente da fare: ${ordinato.niente}`);
+    return;
+  }
+  const { ordine } = ordinato;
+  const contratto = ordine.contratto;
   if (ordine.sha !== commit)
     throw new Error(`l'ordine vale sul commit ${ordine.sha}, il checkout \xE8 ${commit}`);
   const eseguito = eseguiOrdine(banco, ordine);

@@ -10,12 +10,17 @@
 # Il contratto lo trova il servizio dal repository; nella beta il cliente lo apre spingendo
 # `.collaudo/contratto.json` sul ramo principale (C-0053).
 #
-# Il token OIDC di questo job porta `job_workflow_ref: collaudoio/azione/.github/workflows/collaudo.yml@refs/tags/v1`
+# Il token OIDC di questi job porta `job_workflow_ref: collaudoio/azione/.github/workflows/collaudo.yml@refs/tags/v1`
 # e il servizio non dà ordini a nessun altro (`WORKFLOW_FIDATI`): un workflow scritto a mano nel repository
 # del cliente, che spedisse risultati inventati con un token vero, porterebbe il proprio nome. Qui i passi
 # sono NOSTRI: le azioni fissate per sha, l'azione di Collaudo fissata per sha, il servizio non si sceglie,
-# la macchina è di GitHub. Il codice del cliente gira (installazione e suite): è quello del commit, e ciò
-# che la consegna vi cambia sta nel diff che il servizio legge e i rilevatori guardano.
+# la macchina è di GitHub.
+#
+# TRE job (C-0056): il codice del cliente (installazione e suite) gira SOLO nel job `suite`, che non ha
+# `id-token`: su quella macchina le variabili del token non esistono, e il codice consegnato non può
+# coniarne uno per parlare col servizio da solo. L'ordine lo chiede il job `ordine`, i fatti li spedisce
+# il job `spedisci`: tutt'e due col token e senza checkout né `run:`. Ciò che la consegna cambia sta nel
+# diff che il servizio legge e i rilevatori guardano (`manomissione-esecuzione`).
 name: collaudo
 
 on:
@@ -48,12 +53,35 @@ on:
         default: ""
 
 jobs:
-  collaudo:
+  ordine:
     runs-on: ubuntu-24.04
-    timeout-minutes: 110
+    timeout-minutes: 10
+    permissions:
+      id-token: write
+    outputs:
+      ordine: ${{ steps.ordine.outputs.ordine }}
+    steps:
+      - id: ordine
+        uses: collaudoio/azione@fae5e457ee9caed02fd3591ec342e801a4b6ed3d
+        with:
+          fase: ordine
+          cartella: ${{ runner.temp }}/collaudo
+          contratto: ${{ inputs.contratto }}
+      - if: steps.ordine.outputs.ordine == 'si'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: collaudo-ordine
+          path: ${{ runner.temp }}/collaudo/ordine.json
+          if-no-files-found: error
+          retention-days: 1
+
+  suite:
+    needs: ordine
+    if: needs.ordine.outputs.ordine == 'si'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
     permissions:
       contents: read
-      id-token: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -61,12 +89,44 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ inputs.node-version }}
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: collaudo-ordine
+          path: ${{ runner.temp }}/collaudo
       - name: installa
         env:
           INSTALLA: ${{ inputs.installa }}
         run: bash -c "$INSTALLA"
-      - uses: collaudoio/azione@cf19703adcdc5280ba08aa096fda6950ee4fc1c4
+      - uses: collaudoio/azione@fae5e457ee9caed02fd3591ec342e801a4b6ed3d
         with:
-          contratto: ${{ inputs.contratto }}
+          fase: esegui
+          cartella: ${{ runner.temp }}/collaudo
           comando: ${{ inputs.comando }}
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: collaudo-fatti
+          path: ${{ runner.temp }}/collaudo/fatti.json
+          if-no-files-found: error
+          retention-days: 1
+
+  spedisci:
+    needs: [ordine, suite]
+    if: needs.ordine.outputs.ordine == 'si'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: collaudo-ordine
+          path: ${{ runner.temp }}/collaudo
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: collaudo-fatti
+          path: ${{ runner.temp }}/collaudo
+      - uses: collaudoio/azione@fae5e457ee9caed02fd3591ec342e801a4b6ed3d
+        with:
+          fase: spedisci
+          cartella: ${{ runner.temp }}/collaudo
           uso-ai: ${{ inputs.uso-ai }}

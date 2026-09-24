@@ -280,6 +280,24 @@ function eseguiOrdine(banco, ordine) {
 
 // packages/azione/src/servizio.ts
 var AUDIENCE = "collaudo.io";
+var PAZIENZA_MS = 6e4;
+var dormi = (ms) => new Promise((r) => setTimeout(r, ms));
+function conPazienza(rete, attendi = dormi) {
+  return async (url, init) => {
+    let atteso = 0;
+    for (; ; ) {
+      const risposta = await rete(url, init);
+      if (risposta.status !== 429 && risposta.status !== 503) return risposta;
+      const dopo = risposta.headers.get("retry-after");
+      const ms = dopo !== null && /^\d+$/.test(dopo.trim()) ? Math.max(1e3, Number(dopo) * 1e3) : null;
+      if (ms === null || atteso + ms > PAZIENZA_MS) return risposta;
+      await risposta.body?.cancel();
+      console.log(`collaudoio \xB7 il servizio dice di riprovare fra ${ms / 1e3} s: aspetto`);
+      await attendi(ms);
+      atteso += ms;
+    }
+  };
+}
 var indirizzo = (servizio, contratto, cosa) => `${servizio}/contratti/${encodeURIComponent(contratto)}/${cosa}`;
 async function leggiOrdine(rete, servizio, contratto, token) {
   const dove = contratto ? indirizzo(servizio, contratto, "ordine") : `${servizio}/ordine`;
@@ -423,7 +441,8 @@ async function faseSpedisci(amb, rete, p) {
   console.log(`collaudoio \xB7 ${ordine.contratto} \xB7 ${ordine.sha.slice(0, 12)} \xB7 risultati spediti`);
   console.log(JSON.stringify(ricevuta));
 }
-async function main(amb = process.env, rete = fetch) {
+async function main(amb = process.env, reteNuda = fetch, attendi) {
+  const rete = conPazienza(reteNuda, attendi);
   const fase = input(amb, "fase");
   if (!FASI.includes(fase))
     throw new Error(`fase sconosciuta: ${fase ?? "(nessuna)"}; attese: ${FASI.join(", ")}`);

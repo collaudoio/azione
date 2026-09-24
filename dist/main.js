@@ -42,8 +42,8 @@ function \u00E8Ordine(x) {
 function \u00E8Risultati(x) {
   if (!oggetto(x)) return false;
   return testo(x.ordine) && testo(x.contratto) && testo(x.commit) && testo(x.repository) && testo(x.radice) && Array.isArray(x.corse) && x.corse.every(
-    (c) => oggetto(c) && testo(c.id) && typeof c.applicata === "boolean" && typeof c.eseguitaIl === "number"
-  ) && oggetto(x.letti) && Object.values(x.letti).every((v) => v === null || testo(v)) && dizionarioDiTesti(x.impronte) && (x.dichiarazione === void 0 || oggetto(x.dichiarazione) && typeof x.dichiarazione.usoAI === "boolean");
+    (c) => oggetto(c) && testo(c.id) && typeof c.applicata === "boolean" && typeof c.eseguitaIl === "number" && (c.impronte === void 0 || dizionarioDiTesti(c.impronte))
+  ) && oggetto(x.letti) && Object.values(x.letti).every((v) => v === null || testo(v)) && (x.impronte === void 0 || dizionarioDiTesti(x.impronte)) && (x.dichiarazione === void 0 || oggetto(x.dichiarazione) && typeof x.dichiarazione.usoAI === "boolean");
 }
 
 // packages/verifica/src/crypto-node.ts
@@ -109,10 +109,11 @@ import {
   realpathSync,
   rmSync,
   lstatSync,
+  statSync,
   writeFileSync
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { isAbsolute, join, normalize, relative, sep } from "node:path";
+import { dirname, isAbsolute, join, normalize, relative, sep } from "node:path";
 var COMANDO_SUITE_PREDEFINITO = "npx vitest run --reporter=json --outputFile={uscita} {file}";
 function collegamento(percorso) {
   try {
@@ -162,11 +163,17 @@ function bancoNode(o) {
   process.on("exit", () => rmSync(cartellaUscite, { recursive: true, force: true }));
   return {
     radice,
+    // Solo un FILE ha un testo: una cartella allo stesso percorso è «non c'è», non un'eccezione.
     leggi: (file) => {
       const p = percorsoSicuro(radice, file);
-      return existsSync(p) ? readFileSync(p, "utf8") : null;
+      return existsSync(p) && statSync(p).isFile() ? readFileSync(p, "utf8") : null;
     },
-    scrivi: (file, testo2) => writeFileSync(percorsoSicuro(radice, file), testo2, "utf8"),
+    // La cartella della prova sigillata può non esserci più (la consegna l'ha tolta): si ricrea.
+    scrivi: (file, testo2) => {
+      const p = percorsoSicuro(radice, file);
+      mkdirSync(dirname(p), { recursive: true });
+      writeFileSync(p, testo2, "utf8");
+    },
     sha256Hex: (testo2) => crittografiaNode.sha256Hex(testo2),
     adesso: () => Date.now(),
     eseguiSuite: (soloFile) => {
@@ -222,11 +229,32 @@ function passaggioSuDisco(cartella, fileUscite) {
 }
 
 // packages/azione/src/esegui.ts
+var perch\u00E9 = (e) => e instanceof Error ? e.message : String(e);
+function leggiSeSicuro(banco, file) {
+  try {
+    return banco.leggi(file);
+  } catch {
+    return null;
+  }
+}
+function impronteDi(banco, file) {
+  const impronte = {};
+  for (const f of [...new Set(file)].sort()) {
+    const testo2 = leggiSeSicuro(banco, f);
+    if (testo2 !== null) impronte[f] = banco.sha256Hex(testo2);
+  }
+  return impronte;
+}
 function conToppe(banco, toppe, dentro) {
   const originali = /* @__PURE__ */ new Map();
   try {
     for (const t of toppe) {
-      const prima = banco.leggi(t.file);
+      let prima;
+      try {
+        prima = banco.leggi(t.file);
+      } catch (e) {
+        return { applicata: false, nota: perch\u00E9(e) };
+      }
       const dopo = prima === null ? null : applicaMutazione(prima, t);
       if (prima === null || dopo === null) return { applicata: false };
       if (!originali.has(t.file)) originali.set(t.file, prima);
@@ -244,38 +272,45 @@ function accorcia(x) {
     return Object.fromEntries(Object.entries(x).map(([k, v]) => [k, accorcia(v)]));
   return x;
 }
-function corri(banco, toppe, soloFile) {
+function corri(banco, corsa, impronta) {
   const eseguitaIl = banco.adesso();
-  const r = conToppe(
-    banco,
-    toppe,
-    () => accorcia(soloFile ? banco.eseguiSuite(soloFile) : banco.eseguiSuite())
-  );
-  if (!r.applicata) return { applicata: false, rapporto: null, eseguitaIl, nota: "una toppa non si applica" };
-  if (r.valore === null || r.valore === void 0)
-    return { applicata: true, rapporto: null, eseguitaIl, nota: "il runner non ha scritto un rapporto" };
-  if (JSON.stringify(r.valore).length > LIMITI.rapportoByte)
+  const r = conToppe(banco, corsa.toppe, () => {
+    const rapporto2 = accorcia(corsa.soloFile ? banco.eseguiSuite(corsa.soloFile) : banco.eseguiSuite());
+    return { rapporto: rapporto2, impronte: impronteDi(banco, impronta) };
+  });
+  if (!r.applicata)
+    return { applicata: false, rapporto: null, eseguitaIl, nota: r.nota ?? "una toppa non si applica" };
+  const { rapporto, impronte } = r.valore;
+  if (rapporto === null || rapporto === void 0)
     return {
       applicata: true,
       rapporto: null,
       eseguitaIl,
-      nota: `rapporto oltre ${LIMITI.rapportoByte} byte`
+      nota: "il runner non ha scritto un rapporto",
+      impronte
     };
-  return { applicata: true, rapporto: r.valore, eseguitaIl };
+  if (JSON.stringify(rapporto).length > LIMITI.rapportoByte)
+    return {
+      applicata: true,
+      rapporto: null,
+      eseguitaIl,
+      nota: `rapporto oltre ${LIMITI.rapportoByte} byte`,
+      impronte
+    };
+  return { applicata: true, rapporto, eseguitaIl, impronte };
 }
 function eseguiOrdine(banco, ordine) {
   if (ordine.corse.length > LIMITI.corse)
     throw new Error(`l'ordine ha ${ordine.corse.length} corse, il tetto \xE8 ${LIMITI.corse}`);
-  for (const [file, testo2] of Object.entries(ordine.scrivi)) banco.scrivi(file, testo2);
-  const corse = ordine.corse.map((c) => ({ id: c.id, ...corri(banco, c.toppe, c.soloFile) }));
+  for (const [file, testo2] of Object.entries(ordine.scrivi))
+    try {
+      banco.scrivi(file, testo2);
+    } catch {
+    }
+  const corse = ordine.corse.map((c) => ({ id: c.id, ...corri(banco, c, ordine.impronta) }));
   const letti = {};
-  for (const f of ordine.leggi) letti[f] = banco.leggi(f);
-  const impronte = {};
-  for (const f of [...new Set(ordine.impronta)].sort()) {
-    const testo2 = banco.leggi(f);
-    if (testo2 !== null) impronte[f] = banco.sha256Hex(testo2);
-  }
-  return { radice: banco.radice, corse, letti, impronte };
+  for (const f of ordine.leggi) letti[f] = leggiSeSicuro(banco, f);
+  return { radice: banco.radice, corse, letti, impronte: impronteDi(banco, ordine.impronta) };
 }
 
 // packages/azione/src/servizio.ts

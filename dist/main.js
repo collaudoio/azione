@@ -42,8 +42,8 @@ function \u00E8Ordine(x) {
 function \u00E8Risultati(x) {
   if (!oggetto(x)) return false;
   return testo(x.ordine) && testo(x.contratto) && testo(x.commit) && testo(x.repository) && testo(x.radice) && Array.isArray(x.corse) && x.corse.every(
-    (c) => oggetto(c) && testo(c.id) && typeof c.applicata === "boolean" && typeof c.eseguitaIl === "number" && (c.impronte === void 0 || dizionarioDiTesti(c.impronte))
-  ) && oggetto(x.letti) && Object.values(x.letti).every((v) => v === null || testo(v)) && (x.impronte === void 0 || dizionarioDiTesti(x.impronte)) && (x.dichiarazione === void 0 || oggetto(x.dichiarazione) && typeof x.dichiarazione.usoAI === "boolean");
+    (c) => oggetto(c) && testo(c.id) && typeof c.applicata === "boolean" && typeof c.eseguitaIl === "number" && (c.impronte === void 0 || dizionarioDiTesti(c.impronte)) && (c.codiceUscita === void 0 || c.codiceUscita === null || Number.isInteger(c.codiceUscita))
+  ) && oggetto(x.letti) && Object.values(x.letti).every((v) => v === null || testo(v)) && (x.dichiarazione === void 0 || oggetto(x.dichiarazione) && typeof x.dichiarazione.usoAI === "boolean");
 }
 
 // packages/verifica/src/crypto-node.ts
@@ -114,7 +114,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, normalize, relative, sep } from "node:path";
-var COMANDO_SUITE_PREDEFINITO = "npx vitest run --reporter=json --outputFile={uscita} {file}";
+var COMANDO_SUITE_PREDEFINITO = "npx vitest run --reporter=json --outputFile={uscita} --retry=0 --dangerouslyIgnoreUnhandledErrors=false --coverage.enabled=false {file}";
 function collegamento(percorso) {
   try {
     return lstatSync(percorso).isSymbolicLink();
@@ -177,26 +177,39 @@ function bancoNode(o) {
     sha256Hex: (testo2) => crittografiaNode.sha256Hex(testo2),
     adesso: () => Date.now(),
     eseguiSuite: (soloFile) => {
-      const uscita = join(
-        cartellaUscite,
-        `rapporto-${Date.now()}-${Math.random().toString(16).slice(2)}.json`
-      );
-      const [comando, ...args] = argomentiSuite(modello, uscita, soloFile);
+      const file = join(cartellaUscite, `rapporto-${Date.now()}-${Math.random().toString(16).slice(2)}.json`);
+      const [comando, ...args] = argomentiSuite(modello, file, soloFile);
       if (!comando) throw new Error("il comando della suite \xE8 vuoto");
-      spawnSync(comando, args, {
+      const r = spawnSync(comando, args, {
         cwd: radice,
         stdio: "ignore",
         timeout: tempoMassimo,
         env: ambienteDellaSuite(process.env)
       });
-      if (!existsSync(uscita)) return null;
-      try {
-        return JSON.parse(readFileSync(uscita, "utf8"));
-      } catch {
-        return null;
-      }
+      return { rapporto: rapportoDa(file), ...codiceUscitaDi(r, tempoMassimo) };
     }
   };
+}
+function rapportoDa(file) {
+  if (!existsSync(file)) return null;
+  try {
+    return JSON.parse(readFileSync(file, "utf8"));
+  } catch {
+    return null;
+  }
+}
+function codiceUscitaDi(r, tempoMassimoMs) {
+  const codice = r.error?.code;
+  if (codice === "ETIMEDOUT")
+    return {
+      codiceUscita: null,
+      nota: `tempo scaduto: la suite non \xE8 finita in ${tempoMassimoMs / 6e4} minuti`
+    };
+  if (r.error)
+    return { codiceUscita: null, nota: `il comando della suite non \xE8 partito: ${r.error.message}` };
+  if (r.status === null)
+    return { codiceUscita: null, nota: `la suite \xE8 stata interrotta (${r.signal ?? "segnale"})` };
+  return { codiceUscita: r.status };
 }
 function shaDi(radice, riferimento = "HEAD") {
   const r = spawnSync("git", ["rev-parse", riferimento], { cwd: radice, encoding: "utf8" });
@@ -275,29 +288,21 @@ function accorcia(x) {
 function corri(banco, corsa, impronta) {
   const eseguitaIl = banco.adesso();
   const r = conToppe(banco, corsa.toppe, () => {
-    const rapporto2 = accorcia(corsa.soloFile ? banco.eseguiSuite(corsa.soloFile) : banco.eseguiSuite());
-    return { rapporto: rapporto2, impronte: impronteDi(banco, impronta) };
+    const suite2 = corsa.soloFile ? banco.eseguiSuite(corsa.soloFile) : banco.eseguiSuite();
+    return { suite: suite2, impronte: impronteDi(banco, impronta) };
   });
   if (!r.applicata)
     return { applicata: false, rapporto: null, eseguitaIl, nota: r.nota ?? "una toppa non si applica" };
-  const { rapporto, impronte } = r.valore;
-  if (rapporto === null || rapporto === void 0)
-    return {
-      applicata: true,
-      rapporto: null,
-      eseguitaIl,
-      nota: "il runner non ha scritto un rapporto",
-      impronte
-    };
+  const { suite, impronte } = r.valore;
+  const fatti = { applicata: true, eseguitaIl, impronte, codiceUscita: suite.codiceUscita };
+  const rapporto = accorcia(suite.rapporto);
+  if (rapporto === null || rapporto === void 0) {
+    const dettaglio = suite.nota ? ` (${suite.nota})` : "";
+    return { ...fatti, rapporto: null, nota: `il runner non ha scritto un rapporto${dettaglio}` };
+  }
   if (JSON.stringify(rapporto).length > LIMITI.rapportoByte)
-    return {
-      applicata: true,
-      rapporto: null,
-      eseguitaIl,
-      nota: `rapporto oltre ${LIMITI.rapportoByte} byte`,
-      impronte
-    };
-  return { applicata: true, rapporto, eseguitaIl, impronte };
+    return { ...fatti, rapporto: null, nota: `rapporto oltre ${LIMITI.rapportoByte} byte` };
+  return suite.nota ? { ...fatti, rapporto, nota: suite.nota } : { ...fatti, rapporto };
 }
 function eseguiOrdine(banco, ordine) {
   if (ordine.corse.length > LIMITI.corse)
@@ -310,7 +315,7 @@ function eseguiOrdine(banco, ordine) {
   const corse = ordine.corse.map((c) => ({ id: c.id, ...corri(banco, c, ordine.impronta) }));
   const letti = {};
   for (const f of ordine.leggi) letti[f] = leggiSeSicuro(banco, f);
-  return { radice: banco.radice, corse, letti, impronte: impronteDi(banco, ordine.impronta) };
+  return { radice: banco.radice, corse, letti };
 }
 
 // packages/azione/src/servizio.ts
@@ -468,7 +473,6 @@ async function faseSpedisci(amb, rete, p) {
     radice: fatti.radice,
     corse: fatti.corse,
     letti: fatti.letti,
-    impronte: fatti.impronte,
     ...usoAI === void 0 ? {} : { dichiarazione: { usoAI: usoAI === "true" || usoAI === "s\xEC" } }
   };
   if (!\u00E8Risultati(risultati)) throw new Error("i fatti lasciati dall'esecuzione non hanno la forma attesa");

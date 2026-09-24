@@ -42,10 +42,10 @@ on:
         type: string
         default: "npm ci"
       comando:
-        description: "Il comando della suite col reporter JSON; segnaposto {uscita} e {file}."
+        description: "Il comando della suite col reporter JSON; segnaposto {uscita} (il file del rapporto) e {file}. Vuoto: quello di Collaudo, che spegne riprove e copertura e non lascia ignorare gli errori fuori dai test; chi lo cambia tiene quelle opzioni."
         required: false
         type: string
-        default: "npx vitest run --reporter=json --outputFile={uscita} {file}"
+        default: ""
       uso-ai:
         description: "Solo senza l'app GitHub (con l'app vale la casella nella PR, C-0030): true/false."
         required: false
@@ -62,7 +62,7 @@ jobs:
       ordine: ${{ steps.ordine.outputs.ordine }}
     steps:
       - id: ordine
-        uses: collaudoio/azione@a8e2bf2615f1fc7815f084e7e0ae51acb038bfb7
+        uses: collaudoio/azione@be3dfce6e19547cc73af293476c2ad045fde9fd6
         with:
           fase: ordine
           cartella: ${{ runner.temp }}/collaudo
@@ -97,7 +97,7 @@ jobs:
         env:
           INSTALLA: ${{ inputs.installa }}
         run: bash -c "$INSTALLA"
-      - uses: collaudoio/azione@a8e2bf2615f1fc7815f084e7e0ae51acb038bfb7
+      - uses: collaudoio/azione@be3dfce6e19547cc73af293476c2ad045fde9fd6
         with:
           fase: esegui
           cartella: ${{ runner.temp }}/collaudo
@@ -125,7 +125,7 @@ jobs:
         with:
           name: collaudo-fatti
           path: ${{ runner.temp }}/collaudo
-      - uses: collaudoio/azione@a8e2bf2615f1fc7815f084e7e0ae51acb038bfb7
+      - uses: collaudoio/azione@be3dfce6e19547cc73af293476c2ad045fde9fd6
         with:
           fase: spedisci
           cartella: ${{ runner.temp }}/collaudo

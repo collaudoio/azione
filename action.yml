@@ -21,9 +21,8 @@ inputs:
     required: false
     default: "https://api.collaudo.io"
   comando:
-    description: "Il comando della suite col reporter JSON; segnaposto {uscita} e {file}."
+    description: "Il comando della suite col reporter JSON; segnaposto {uscita} (il file del rapporto) e {file}. Vuoto: quello di Collaudo, che spegne riprove e copertura e non lascia ignorare gli errori fuori dai test; chi lo cambia tiene quelle opzioni."
     required: false
-    default: "npx vitest run --reporter=json --outputFile={uscita} {file}"
   uso-ai:
     description: "Solo alla consegna e SOLO se il servizio non ha l'app GitHub (con l'app vale la casella nella descrizione della PR, C-0030): il produttore dichiara se ha usato l'AI (true/false)."
     required: false

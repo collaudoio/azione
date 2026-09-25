@@ -72,10 +72,11 @@ var PREFISSO_PKCS8 = decodificaHex("302e020100300506032b657004220420");
 var PREFISSO_SPKI = decodificaHex("302a300506032b6570032100");
 var BYTE_CHIAVE = 32;
 function esigi32(chiave, quale) {
-  if (chiave.length !== BYTE_CHIAVE)
+  if (chiave.length !== BYTE_CHIAVE) {
     throw new Error(
       `crittografiaNode: la chiave ${quale} \xE8 di ${chiave.length} byte, ed25519 ne vuole ${BYTE_CHIAVE}`
     );
+  }
 }
 var chiavePrivataDa = (raw) => createPrivateKey({ key: Buffer.concat([PREFISSO_PKCS8, raw]), format: "der", type: "pkcs8" });
 var chiavePubblicaDa = (raw) => createPublicKey({ key: Buffer.concat([PREFISSO_SPKI, raw]), format: "der", type: "spki" });
@@ -114,7 +115,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, normalize, relative, sep } from "node:path";
-var COMANDO_SUITE_PREDEFINITO = "npx vitest run --reporter=json --outputFile={uscita} --retry=0 --dangerouslyIgnoreUnhandledErrors=false --coverage.enabled=false {file}";
+var COMANDO_SUITE_PREDEFINITO = "npx vitest run --reporter=json --outputFile={uscita} --retry=0 --dangerouslyIgnoreUnhandledErrors=false --coverage.enabled=false --no-update {file}";
 function collegamento(percorso) {
   try {
     return lstatSync(percorso).isSymbolicLink();
@@ -150,7 +151,7 @@ var AMBIENTE_AMMESSO = [
   /^npm_config_/i
 ];
 function ambienteDellaSuite(ambiente) {
-  const fuori = { CI: "1" };
+  const fuori = { CI: "1", FORCE_COLOR: "0", NO_COLOR: "1" };
   for (const [nome, valore] of Object.entries(ambiente))
     if (valore !== void 0 && AMBIENTE_AMMESSO.some((re) => re.test(nome))) fuori[nome] = valore;
   return fuori;
@@ -200,11 +201,12 @@ function rapportoDa(file) {
 }
 function codiceUscitaDi(r, tempoMassimoMs) {
   const codice = r.error?.code;
-  if (codice === "ETIMEDOUT")
+  if (codice === "ETIMEDOUT") {
     return {
       codiceUscita: null,
       nota: `tempo scaduto: la suite non \xE8 finita in ${tempoMassimoMs / 6e4} minuti`
     };
+  }
   if (r.error)
     return { codiceUscita: null, nota: `il comando della suite non \xE8 partito: ${r.error.message}` };
   if (r.status === null)
@@ -307,11 +309,12 @@ function corri(banco, corsa, impronta) {
 function eseguiOrdine(banco, ordine) {
   if (ordine.corse.length > LIMITI.corse)
     throw new Error(`l'ordine ha ${ordine.corse.length} corse, il tetto \xE8 ${LIMITI.corse}`);
-  for (const [file, testo2] of Object.entries(ordine.scrivi))
+  for (const [file, testo2] of Object.entries(ordine.scrivi)) {
     try {
       banco.scrivi(file, testo2);
     } catch {
     }
+  }
   const corse = ordine.corse.map((c) => ({ id: c.id, ...corri(banco, c, ordine.impronta) }));
   const letti = {};
   for (const f of ordine.leggi) letti[f] = leggiSeSicuro(banco, f);
@@ -345,10 +348,11 @@ async function leggiOrdine(rete, servizio, contratto, token) {
   const risposta = await rete(dove, {
     headers: { authorization: `Bearer ${token}`, accept: "application/json" }
   });
-  if (!risposta.ok)
+  if (!risposta.ok) {
     throw new Error(
       `il servizio non d\xE0 l'ordine di ${chi}: HTTP ${risposta.status}${await motiviDi(risposta)}`
     );
+  }
   const testo2 = await risposta.text();
   if (testo2.length > LIMITI.ordineByte)
     throw new Error(`l'ordine supera ${LIMITI.ordineByte} byte: non lo eseguo`);
@@ -387,10 +391,11 @@ async function spedisciRisultati(rete, servizio, token, r) {
     },
     body: JSON.stringify(r)
   });
-  if (!risposta.ok)
+  if (!risposta.ok) {
     throw new Error(
       `il servizio ha rifiutato i risultati di ${r.contratto}: HTTP ${risposta.status}${await motiviDi(risposta)}`
     );
+  }
   return risposta.json();
 }
 async function motiviDi(risposta) {
@@ -403,11 +408,13 @@ async function motiviDi(risposta) {
   const c = corpo;
   const righe = [];
   if (typeof c.errore === "string") righe.push(c.errore);
-  if (Array.isArray(c.motivi))
-    for (const m of c.motivi)
+  if (Array.isArray(c.motivi)) {
+    for (const m of c.motivi) {
       righe.push(
         typeof m === "string" ? m : `${String(m.codice)}: ${String(m.dettaglio)}`
       );
+    }
+  }
   return righe.map((r) => `
   \xB7 ${r}`).join("");
 }
@@ -446,10 +453,11 @@ async function faseOrdine(amb, rete, p) {
   );
 }
 function faseEsegui(amb, p, banco) {
-  if (amb.ACTIONS_ID_TOKEN_REQUEST_URL || amb.ACTIONS_ID_TOKEN_REQUEST_TOKEN)
+  if (amb.ACTIONS_ID_TOKEN_REQUEST_URL || amb.ACTIONS_ID_TOKEN_REQUEST_TOKEN) {
     throw new Error(
       "il job che esegue il codice del cliente non deve avere `id-token: write`: il token lo coniano solo i job dell'ordine e della spedizione"
     );
+  }
   const ordine = ordineLasciato(p);
   const b = banco(amb.GITHUB_WORKSPACE ?? process.cwd());
   const commit = shaDi(b.radice);

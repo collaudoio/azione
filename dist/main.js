@@ -25,7 +25,12 @@ var LIMITI = {
   corse: 64,
   rapportoByte: 4 * 1024 * 1024,
   /** Oltre, una stringa del rapporto (una traccia dello stack) si accorcia: il servizio ne legge il prefisso. */
-  stringa: 4096
+  stringa: 4096,
+  /**
+   * Oltre, un file chiesto in lettura arriva `null` (non letto): un `.snap` di qualche MB sfonderebbe i risultati.
+   * Un oracolo così si sigilla presente ma senza voci (`oracoli-sigillati.ts`), com'è sulla piattaforma (1 MB).
+   */
+  lettoByte: 1024 * 1024
 };
 var testo = (x) => typeof x === "string";
 var oggetto = (x) => typeof x === "object" && x !== null && !Array.isArray(x);
@@ -33,6 +38,8 @@ var dizionarioDiTesti = (x) => oggetto(x) && Object.values(x).every(testo);
 function \u00E8Toppa(x) {
   return oggetto(x) && testo(x.file) && testo(x.cerca) && testo(x.sostituisci) && (x.riga === void 0 || typeof x.riga === "number");
 }
+var statoSulDisco = (x) => x === null || oggetto(x) && [x.ctimeMs, x.ino, x.size].every((n) => typeof n === "number" && Number.isFinite(n));
+var coppiaDiStati = (x) => oggetto(x) && statoSulDisco(x.prima) && statoSulDisco(x.dopo);
 function \u00E8Ordine(x) {
   if (!oggetto(x)) return false;
   return testo(x.id) && testo(x.contratto) && testo(x.sha) && typeof x.scadeIl === "number" && dizionarioDiTesti(x.scrivi) && Array.isArray(x.corse) && x.corse.every(
@@ -42,7 +49,7 @@ function \u00E8Ordine(x) {
 function \u00E8Risultati(x) {
   if (!oggetto(x)) return false;
   return testo(x.ordine) && testo(x.contratto) && testo(x.commit) && testo(x.repository) && testo(x.radice) && Array.isArray(x.corse) && x.corse.every(
-    (c) => oggetto(c) && testo(c.id) && typeof c.applicata === "boolean" && typeof c.eseguitaIl === "number" && (c.impronte === void 0 || dizionarioDiTesti(c.impronte)) && (c.codiceUscita === void 0 || c.codiceUscita === null || Number.isInteger(c.codiceUscita))
+    (c) => oggetto(c) && testo(c.id) && typeof c.applicata === "boolean" && typeof c.eseguitaIl === "number" && (c.impronte === void 0 || dizionarioDiTesti(c.impronte)) && (c.stati === void 0 || oggetto(c.stati) && Object.values(c.stati).every(coppiaDiStati)) && (c.codiceUscita === void 0 || c.codiceUscita === null || Number.isInteger(c.codiceUscita))
   ) && oggetto(x.letti) && Object.values(x.letti).every((v) => v === null || testo(v)) && (x.dichiarazione === void 0 || oggetto(x.dichiarazione) && typeof x.dichiarazione.usoAI === "boolean");
 }
 
@@ -115,7 +122,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, normalize, relative, sep } from "node:path";
-var COMANDO_SUITE_PREDEFINITO = "npx vitest run --reporter=json --outputFile={uscita} --retry=0 --dangerouslyIgnoreUnhandledErrors=false --coverage.enabled=false --no-update {file}";
+var COMANDO_SUITE_PREDEFINITO = "npx vitest run --reporter=json --outputFile={uscita} --retry=0 --dangerouslyIgnoreUnhandledErrors=false --coverage.enabled=false --no-update --bail=0 {file}";
 function collegamento(percorso) {
   try {
     return lstatSync(percorso).isSymbolicLink();
@@ -174,6 +181,16 @@ function bancoNode(o) {
       const p = percorsoSicuro(radice, file);
       mkdirSync(dirname(p), { recursive: true });
       writeFileSync(p, testo2, "utf8");
+    },
+    stato: (file) => {
+      try {
+        const p = percorsoSicuro(radice, file);
+        if (!existsSync(p)) return null;
+        const s = lstatSync(p);
+        return { ctimeMs: s.ctimeMs, ino: s.ino, size: s.size };
+      } catch {
+        return null;
+      }
     },
     sha256Hex: (testo2) => crittografiaNode.sha256Hex(testo2),
     adesso: () => Date.now(),
@@ -236,6 +253,9 @@ function passaggioSuDisco(cartella, fileUscite) {
       mkdirSync(cartella, { recursive: true });
       writeFileSync(percorso(nome), JSON.stringify(valore), "utf8");
     },
+    togli(nome) {
+      rmSync(percorso(nome), { force: true });
+    },
     uscita(nome, valore) {
       if (fileUscite) appendFileSync(fileUscite, `${nome}=${valore}
 `, "utf8");
@@ -245,12 +265,18 @@ function passaggioSuDisco(cartella, fileUscite) {
 
 // packages/azione/src/esegui.ts
 var perch\u00E9 = (e) => e instanceof Error ? e.message : String(e);
+var UTF8 = new TextEncoder();
 function leggiSeSicuro(banco, file) {
   try {
     return banco.leggi(file);
   } catch {
     return null;
   }
+}
+function statiDi(banco, file) {
+  const stati = {};
+  for (const f of [...new Set(file)].sort()) stati[f] = banco.stato(f);
+  return stati;
 }
 function impronteDi(banco, file) {
   const impronte = {};
@@ -290,13 +316,18 @@ function accorcia(x) {
 function corri(banco, corsa, impronta) {
   const eseguitaIl = banco.adesso();
   const r = conToppe(banco, corsa.toppe, () => {
+    const prima = statiDi(banco, impronta);
     const suite2 = corsa.soloFile ? banco.eseguiSuite(corsa.soloFile) : banco.eseguiSuite();
-    return { suite: suite2, impronte: impronteDi(banco, impronta) };
+    const dopo = statiDi(banco, impronta);
+    const stati2 = Object.fromEntries(
+      Object.keys(prima).map((f) => [f, { prima: prima[f] ?? null, dopo: dopo[f] ?? null }])
+    );
+    return { suite: suite2, impronte: impronteDi(banco, impronta), stati: stati2 };
   });
   if (!r.applicata)
     return { applicata: false, rapporto: null, eseguitaIl, nota: r.nota ?? "una toppa non si applica" };
-  const { suite, impronte } = r.valore;
-  const fatti = { applicata: true, eseguitaIl, impronte, codiceUscita: suite.codiceUscita };
+  const { suite, impronte, stati } = r.valore;
+  const fatti = { applicata: true, eseguitaIl, impronte, stati, codiceUscita: suite.codiceUscita };
   const rapporto = accorcia(suite.rapporto);
   if (rapporto === null || rapporto === void 0) {
     const dettaglio = suite.nota ? ` (${suite.nota})` : "";
@@ -317,7 +348,10 @@ function eseguiOrdine(banco, ordine) {
   }
   const corse = ordine.corse.map((c) => ({ id: c.id, ...corri(banco, c, ordine.impronta) }));
   const letti = {};
-  for (const f of ordine.leggi) letti[f] = leggiSeSicuro(banco, f);
+  for (const f of ordine.leggi) {
+    const testo2 = leggiSeSicuro(banco, f);
+    letti[f] = testo2 !== null && UTF8.encode(testo2).length > LIMITI.lettoByte ? null : testo2;
+  }
   return { radice: banco.radice, corse, letti };
 }
 
@@ -459,6 +493,7 @@ function faseEsegui(amb, p, banco) {
     );
   }
   const ordine = ordineLasciato(p);
+  p.togli("ordine");
   const b = banco(amb.GITHUB_WORKSPACE ?? process.cwd());
   const commit = shaDi(b.radice);
   if (ordine.sha !== commit)

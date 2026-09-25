@@ -62,7 +62,7 @@ jobs:
       ordine: ${{ steps.ordine.outputs.ordine }}
     steps:
       - id: ordine
-        uses: collaudoio/azione@be3dfce6e19547cc73af293476c2ad045fde9fd6
+        uses: collaudoio/azione@02de07d8ffa67988c841236a02031d44d43b5d05
         with:
           fase: ordine
           cartella: ${{ runner.temp }}/collaudo
@@ -97,7 +97,7 @@ jobs:
         env:
           INSTALLA: ${{ inputs.installa }}
         run: bash -c "$INSTALLA"
-      - uses: collaudoio/azione@be3dfce6e19547cc73af293476c2ad045fde9fd6
+      - uses: collaudoio/azione@02de07d8ffa67988c841236a02031d44d43b5d05
         with:
           fase: esegui
           cartella: ${{ runner.temp }}/collaudo
@@ -125,7 +125,7 @@ jobs:
         with:
           name: collaudo-fatti
           path: ${{ runner.temp }}/collaudo
-      - uses: collaudoio/azione@be3dfce6e19547cc73af293476c2ad045fde9fd6
+      - uses: collaudoio/azione@02de07d8ffa67988c841236a02031d44d43b5d05
         with:
           fase: spedisci
           cartella: ${{ runner.temp }}/collaudo

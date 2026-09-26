@@ -21,6 +21,12 @@
 # coniarne uno per parlare col servizio da solo. L'ordine lo chiede il job `ordine`, i fatti li spedisce
 # il job `spedisci`: tutt'e due col token e senza checkout né `run:`. Ciò che la consegna cambia sta nel
 # diff che il servizio legge e i rilevatori guardano (`manomissione-esecuzione`).
+#
+# COME si esegue la suite (il runner e le sue opzioni, l'installazione, Node) sta nel CONTRATTO (C-0085), non in
+# questi input: il workflow chiamante sta nel ramo di chi consegna, che li cambierebbe dalla sua pull request. Il
+# servizio li manda con l'ordine: il job `ordine` dà Node al job `suite`, l'azione esegue installazione e suite.
+# `node-version`, `installa` e `comando` restano dichiarati perché un chiamante di prima che li passa non si rompa,
+# ma non valgono più.
 name: collaudo
 
 on:
@@ -32,17 +38,17 @@ on:
         type: string
         default: ""
       node-version:
-        description: "La versione di Node del progetto."
+        description: "Non vale più (C-0085): la versione di Node sta nel contratto, `esecuzione.node`."
         required: false
         type: string
-        default: "24"
+        default: ""
       installa:
-        description: "Il comando che installa le dipendenze."
+        description: "Non vale più (C-0085): l'installazione sta nel contratto, `esecuzione.installa`."
         required: false
         type: string
-        default: "npm ci"
+        default: ""
       comando:
-        description: "Il comando della suite col reporter JSON; segnaposto {uscita} (il file del rapporto) e {file}. Vuoto: quello di Collaudo, che spegne riprove e copertura e non lascia ignorare gli errori fuori dai test; chi lo cambia tiene quelle opzioni."
+        description: "Non vale più (C-0085): il runner e le sue opzioni stanno nel contratto, `esecuzione.runner` e `esecuzione.opzioni`."
         required: false
         type: string
         default: ""
@@ -51,6 +57,10 @@ on:
         required: false
         type: string
         default: ""
+    outputs:
+      codice:
+        description: "Quando non c'è niente da fare, il perché in un codice stabile (`nessun-contratto`, `ramo-principale`, `ha-contestato`…); vuoto quando Collaudo ha eseguito un ordine."
+        value: ${{ jobs.ordine.outputs.codice }}
 
 jobs:
   ordine:
@@ -60,9 +70,13 @@ jobs:
       id-token: write
     outputs:
       ordine: ${{ steps.ordine.outputs.ordine }}
+      # Il codice stabile del «niente da fare» (`ramo-principale`, `ha-contestato`…), vuoto quando c'è un ordine.
+      codice: ${{ steps.ordine.outputs.codice }}
+      # La versione di Node, dalla clausola del contratto (C-0085): `setup-node` nel job `suite` la prende da qui.
+      node: ${{ steps.ordine.outputs.node }}
     steps:
       - id: ordine
-        uses: collaudoio/azione@acff0049a376c67ccde18e6624c9e6de17f4fd98
+        uses: collaudoio/azione@3b1877cf0c6fc8ebc0a6109e4c911d3cdad4bc17
         with:
           fase: ordine
           cartella: ${{ runner.temp }}/collaudo
@@ -88,21 +102,18 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: ${{ inputs.node-version }}
-      - name: installa
-        env:
-          INSTALLA: ${{ inputs.installa }}
-        run: bash -c "$INSTALLA"
-      # L'ordine DOPO l'installazione (che esegue codice del cliente), e l'azione lo toglie prima della prima corsa.
+          node-version: ${{ needs.ordine.outputs.node }}
+      # Nessun passo `run:` (C-0085, Fable): l'installazione la esegue l'AZIONE, con l'ambiente chiuso e dopo aver
+      # tolto l'ordine dal disco. Un passo `run:` avrebbe l'ambiente pieno del runner: un `postinstall` scriverebbe in
+      # `$GITHUB_PATH` e `$GITHUB_ENV` per il passo dell'azione, e col token degli artefatti scaricherebbe l'ordine.
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: collaudo-ordine
           path: ${{ runner.temp }}/collaudo
-      - uses: collaudoio/azione@acff0049a376c67ccde18e6624c9e6de17f4fd98
+      - uses: collaudoio/azione@3b1877cf0c6fc8ebc0a6109e4c911d3cdad4bc17
         with:
           fase: esegui
           cartella: ${{ runner.temp }}/collaudo
-          comando: ${{ inputs.comando }}
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: collaudo-fatti
@@ -126,7 +137,7 @@ jobs:
         with:
           name: collaudo-fatti
           path: ${{ runner.temp }}/collaudo
-      - uses: collaudoio/azione@acff0049a376c67ccde18e6624c9e6de17f4fd98
+      - uses: collaudoio/azione@3b1877cf0c6fc8ebc0a6109e4c911d3cdad4bc17
         with:
           fase: spedisci
           cartella: ${{ runner.temp }}/collaudo

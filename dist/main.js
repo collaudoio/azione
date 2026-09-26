@@ -30,7 +30,9 @@ var LIMITI = {
    * Oltre, un file chiesto in lettura arriva `null` (non letto): un `.snap` di qualche MB sfonderebbe i risultati.
    * Un oracolo così si sigilla presente ma senza voci (`oracoli-sigillati.ts`), com'è sulla piattaforma (1 MB).
    */
-  lettoByte: 1024 * 1024
+  lettoByte: 1024 * 1024,
+  /** I pacchetti di cui un ordine chiede la versione. */
+  pacchetti: 8
 };
 var testo = (x) => typeof x === "string";
 var oggetto = (x) => typeof x === "object" && x !== null && !Array.isArray(x);
@@ -44,13 +46,13 @@ function \u00E8Ordine(x) {
   if (!oggetto(x)) return false;
   return testo(x.id) && testo(x.contratto) && testo(x.sha) && typeof x.scadeIl === "number" && dizionarioDiTesti(x.scrivi) && Array.isArray(x.corse) && x.corse.every(
     (c) => oggetto(c) && testo(c.id) && Array.isArray(c.toppe) && c.toppe.every(\u00E8Toppa) && (c.soloFile === void 0 || Array.isArray(c.soloFile) && c.soloFile.every(testo))
-  ) && Array.isArray(x.leggi) && x.leggi.every(testo) && Array.isArray(x.impronta) && x.impronta.every(testo);
+  ) && Array.isArray(x.leggi) && x.leggi.every(testo) && Array.isArray(x.impronta) && x.impronta.every(testo) && (x.pacchetti === void 0 || Array.isArray(x.pacchetti) && x.pacchetti.length <= LIMITI.pacchetti && x.pacchetti.every(testo)) && [x.comando, x.installa, x.node].every((v) => v === void 0 || testo(v));
 }
 function \u00E8Risultati(x) {
   if (!oggetto(x)) return false;
   return testo(x.ordine) && testo(x.contratto) && testo(x.commit) && testo(x.repository) && testo(x.radice) && Array.isArray(x.corse) && x.corse.every(
     (c) => oggetto(c) && testo(c.id) && typeof c.applicata === "boolean" && typeof c.eseguitaIl === "number" && (c.impronte === void 0 || dizionarioDiTesti(c.impronte)) && (c.stati === void 0 || oggetto(c.stati) && Object.values(c.stati).every(coppiaDiStati)) && (c.codiceUscita === void 0 || c.codiceUscita === null || Number.isInteger(c.codiceUscita))
-  ) && oggetto(x.letti) && Object.values(x.letti).every((v) => v === null || testo(v)) && (x.dichiarazione === void 0 || oggetto(x.dichiarazione) && typeof x.dichiarazione.usoAI === "boolean");
+  ) && oggetto(x.letti) && Object.values(x.letti).every((v) => v === null || testo(v)) && (x.comando === void 0 || testo(x.comando)) && (x.pacchetti === void 0 || oggetto(x.pacchetti) && Object.values(x.pacchetti).every((v) => v === null || testo(v))) && (x.dichiarazione === void 0 || oggetto(x.dichiarazione) && typeof x.dichiarazione.usoAI === "boolean");
 }
 
 // packages/verifica/src/crypto-node.ts
@@ -122,7 +124,6 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, normalize, relative, sep } from "node:path";
-var COMANDO_SUITE_PREDEFINITO = "npx vitest run --reporter=json --outputFile={uscita} --retry=0 --dangerouslyIgnoreUnhandledErrors=false --coverage.enabled=false --no-update --bail=0 {file}";
 function collegamento(percorso) {
   try {
     return lstatSync(percorso).isSymbolicLink();
@@ -165,7 +166,6 @@ function ambienteDellaSuite(ambiente) {
 }
 function bancoNode(o) {
   const radice = realpathSync(normalize(o.radice));
-  const modello = o.comandoSuite ?? COMANDO_SUITE_PREDEFINITO;
   const tempoMassimo = o.tempoMassimoMs ?? 20 * 60 * 1e3;
   const cartellaUscite = mkdtempSync(join(tmpdir(), "collaudo-azione-"));
   process.on("exit", () => rmSync(cartellaUscite, { recursive: true, force: true }));
@@ -194,7 +194,24 @@ function bancoNode(o) {
     },
     sha256Hex: (testo2) => crittografiaNode.sha256Hex(testo2),
     adesso: () => Date.now(),
-    eseguiSuite: (soloFile) => {
+    versione: (nome) => versioneDi(radice, nome),
+    commit: () => shaDi(radice),
+    installa: (comando) => {
+      const chiuso = ambienteDellaSuite(process.env);
+      const r = spawnSync("bash", ["-c", comando], {
+        cwd: radice,
+        stdio: ["ignore", "pipe", "pipe"],
+        encoding: "utf8",
+        maxBuffer: 64 * 1024 * 1024,
+        timeout: tempoMassimo,
+        env: chiuso
+      });
+      const esito = codiceUscitaDi(r, tempoMassimo);
+      if (esito.codiceUscita === 0) return esito;
+      const righe = `${r.stdout ?? ""}${r.stderr ?? ""}`.split("\n").slice(-40);
+      return { ...esito, coda: righe.join("\n") };
+    },
+    eseguiSuite: (modello, soloFile) => {
       const file = join(cartellaUscite, `rapporto-${Date.now()}-${Math.random().toString(16).slice(2)}.json`);
       const [comando, ...args] = argomentiSuite(modello, file, soloFile);
       if (!comando) throw new Error("il comando della suite \xE8 vuoto");
@@ -207,6 +224,17 @@ function bancoNode(o) {
       return { rapporto: rapportoDa(file), ...codiceUscitaDi(r, tempoMassimo) };
     }
   };
+}
+var NOME_PACCHETTO = /^(?:@[a-z0-9~-][a-z0-9._~-]*\/)?[a-z0-9~-][a-z0-9._~-]*$/;
+function versioneDi(radice, nome) {
+  if (!NOME_PACCHETTO.test(nome)) return null;
+  try {
+    const pkg = join(radice, "node_modules", nome, "package.json");
+    const v = JSON.parse(readFileSync(pkg, "utf8")).version;
+    return typeof v === "string" ? v : null;
+  } catch {
+    return null;
+  }
 }
 function rapportoDa(file) {
   if (!existsSync(file)) return null;
@@ -257,6 +285,7 @@ function passaggioSuDisco(cartella, fileUscite) {
       rmSync(percorso(nome), { force: true });
     },
     uscita(nome, valore) {
+      if (/[\r\n]/.test(valore)) throw new Error(`l'uscita ${nome} ha un a capo: non si scrive`);
       if (fileUscite) appendFileSync(fileUscite, `${nome}=${valore}
 `, "utf8");
     }
@@ -313,11 +342,11 @@ function accorcia(x) {
     return Object.fromEntries(Object.entries(x).map(([k, v]) => [k, accorcia(v)]));
   return x;
 }
-function corri(banco, corsa, impronta) {
+function corri(banco, comando, corsa, impronta) {
   const eseguitaIl = banco.adesso();
   const r = conToppe(banco, corsa.toppe, () => {
     const prima = statiDi(banco, impronta);
-    const suite2 = corsa.soloFile ? banco.eseguiSuite(corsa.soloFile) : banco.eseguiSuite();
+    const suite2 = corsa.soloFile ? banco.eseguiSuite(comando, corsa.soloFile) : banco.eseguiSuite(comando);
     const dopo = statiDi(banco, impronta);
     const stati2 = Object.fromEntries(
       Object.keys(prima).map((f) => [f, { prima: prima[f] ?? null, dopo: dopo[f] ?? null }])
@@ -338,6 +367,9 @@ function corri(banco, corsa, impronta) {
   return suite.nota ? { ...fatti, rapporto, nota: suite.nota } : { ...fatti, rapporto };
 }
 function eseguiOrdine(banco, ordine) {
+  const { comando } = ordine;
+  if (comando === void 0)
+    throw new Error("l'ordine non porta il comando della suite: il servizio \xE8 di prima dell'azione (C-0085)");
   if (ordine.corse.length > LIMITI.corse)
     throw new Error(`l'ordine ha ${ordine.corse.length} corse, il tetto \xE8 ${LIMITI.corse}`);
   for (const [file, testo2] of Object.entries(ordine.scrivi)) {
@@ -346,13 +378,14 @@ function eseguiOrdine(banco, ordine) {
     } catch {
     }
   }
-  const corse = ordine.corse.map((c) => ({ id: c.id, ...corri(banco, c, ordine.impronta) }));
+  const pacchetti = ordine.pacchetti ? Object.fromEntries(ordine.pacchetti.map((n) => [n, banco.versione(n)])) : void 0;
+  const corse = ordine.corse.map((c) => ({ id: c.id, ...corri(banco, comando, c, ordine.impronta) }));
   const letti = {};
   for (const f of ordine.leggi) {
     const testo2 = leggiSeSicuro(banco, f);
     letti[f] = testo2 !== null && UTF8.encode(testo2).length > LIMITI.lettoByte ? null : testo2;
   }
-  return { radice: banco.radice, corse, letti };
+  return { radice: banco.radice, corse, letti, comando, ...pacchetti ? { pacchetti } : {} };
 }
 
 // packages/azione/src/servizio.ts
@@ -376,6 +409,7 @@ function conPazienza(rete, attendi = dormi) {
   };
 }
 var indirizzo = (servizio, contratto, cosa) => `${servizio}/contratti/${encodeURIComponent(contratto)}/${cosa}`;
+var CODICE_NIENTE = /^[a-z][a-z0-9-]{0,63}$/;
 async function leggiOrdine(rete, servizio, contratto, token) {
   const dove = contratto ? indirizzo(servizio, contratto, "ordine") : `${servizio}/ordine`;
   const chi = contratto ?? "questo repository";
@@ -396,8 +430,9 @@ async function leggiOrdine(rete, servizio, contratto, token) {
   } catch {
     throw new Error(`l'ordine di ${chi} non \xE8 JSON`);
   }
-  const niente = corpo?.niente;
-  if (typeof niente === "string") return { niente };
+  const { niente, codice } = corpo ?? {};
+  if (typeof niente === "string")
+    return { niente, codice: typeof codice === "string" && CODICE_NIENTE.test(codice) ? codice : null };
   if (!\u00E8Ordine(corpo)) throw new Error(`l'ordine di ${chi} non ha la forma attesa`);
   return { ordine: corpo };
 }
@@ -476,12 +511,21 @@ async function faseOrdine(amb, rete, p) {
   );
   if ("niente" in ordinato) {
     console.log(`::notice title=Collaudo::${ordinato.niente}`);
-    console.log(`collaudoio \xB7 niente da fare: ${ordinato.niente}`);
+    const perch\u00E92 = ordinato.codice ? ` (${ordinato.codice})` : "";
+    console.log(`collaudoio \xB7 niente da fare${perch\u00E92}: ${ordinato.niente}`);
     p.uscita("ordine", "no");
+    p.uscita("codice", ordinato.codice ?? "");
     return;
+  }
+  const { comando, installa, node } = ordinato.ordine;
+  if (comando === void 0 || installa === void 0 || node === void 0) {
+    throw new Error(
+      "l'ordine non dice come eseguire la suite (comando, installazione, Node): il servizio \xE8 di prima"
+    );
   }
   p.scrivi("ordine", ordinato.ordine);
   p.uscita("ordine", "si");
+  p.uscita("node", node);
   console.log(
     `collaudoio \xB7 ${ordinato.ordine.contratto} \xB7 ordine ricevuto: ${ordinato.ordine.corse.length} corse`
   );
@@ -495,7 +539,16 @@ function faseEsegui(amb, p, banco) {
   const ordine = ordineLasciato(p);
   p.togli("ordine");
   const b = banco(amb.GITHUB_WORKSPACE ?? process.cwd());
-  const commit = shaDi(b.radice);
+  if (ordine.installa === void 0)
+    throw new Error("l'ordine non porta l'installazione: il servizio \xE8 di prima dell'azione (C-0085)");
+  const inst = b.installa(ordine.installa);
+  if (inst.codiceUscita !== 0) {
+    for (const r of (inst.coda ?? "").split("\n")) console.log(`  \u2502 ${r}`);
+    throw new Error(
+      `l'installazione \xAB${ordine.installa}\xBB ${inst.codiceUscita === null ? `non \xE8 finita (${inst.nota ?? "?"})` : `\xE8 uscita con ${inst.codiceUscita}`}`
+    );
+  }
+  const commit = b.commit();
   if (ordine.sha !== commit)
     throw new Error(`l'ordine vale sul commit ${ordine.sha}, il checkout \xE8 ${commit}`);
   p.scrivi("fatti", eseguiOrdine(b, ordine));
@@ -516,6 +569,8 @@ async function faseSpedisci(amb, rete, p) {
     radice: fatti.radice,
     corse: fatti.corse,
     letti: fatti.letti,
+    ...fatti.comando === void 0 ? {} : { comando: fatti.comando },
+    ...fatti.pacchetti === void 0 ? {} : { pacchetti: fatti.pacchetti },
     ...usoAI === void 0 ? {} : { dichiarazione: { usoAI: usoAI === "true" || usoAI === "s\xEC" } }
   };
   if (!\u00E8Risultati(risultati)) throw new Error("i fatti lasciati dall'esecuzione non hanno la forma attesa");
@@ -534,8 +589,12 @@ async function main(amb = process.env, reteNuda = fetch, attendi) {
   );
   if (fase === "ordine") return faseOrdine(amb, rete, p);
   if (fase === "spedisci") return faseSpedisci(amb, rete, p);
-  const comando = input(amb, "comando");
-  faseEsegui(amb, p, (radice) => bancoNode({ radice, ...comando ? { comandoSuite: comando } : {} }));
+  if (input(amb, "comando")) {
+    console.log(
+      "::warning title=Collaudo::l'input `comando` non vale pi\xF9: il comando sta nel contratto (`esecuzione`)"
+    );
+  }
+  faseEsegui(amb, p, (radice) => bancoNode({ radice }));
 }
 if (process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).href) {
   main().catch((e) => {

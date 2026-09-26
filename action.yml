@@ -20,15 +20,16 @@ inputs:
     description: "L'indirizzo del servizio dei verdetti."
     required: false
     default: "https://api.collaudo.io"
-  comando:
-    description: "Il comando della suite col reporter JSON; segnaposto {uscita} (il file del rapporto) e {file}. Vuoto: quello di Collaudo, che spegne riprove e copertura e non lascia ignorare gli errori fuori dai test; chi lo cambia tiene quelle opzioni."
-    required: false
   uso-ai:
     description: "Solo alla consegna e SOLO se il servizio non ha l'app GitHub (con l'app vale la casella nella descrizione della PR, C-0030): il produttore dichiara se ha usato l'AI (true/false)."
     required: false
 outputs:
   ordine:
     description: "Solo nella fase ordine: «si» (senza accento: è un confronto nel workflow) se c'è un ordine da eseguire, «no» se il servizio non ha niente da fare."
+  codice:
+    description: "Solo nella fase ordine, col «niente da fare»: il perché in un codice stabile."
+  node:
+    description: "Solo nella fase ordine: la versione di Node, dalla clausola del contratto (C-0085)."
 runs:
   using: "node24"
   main: "dist/main.js"

@@ -76,7 +76,7 @@ jobs:
       node: ${{ steps.ordine.outputs.node }}
     steps:
       - id: ordine
-        uses: collaudoio/azione@3b1877cf0c6fc8ebc0a6109e4c911d3cdad4bc17
+        uses: collaudoio/azione@6a80878fc43a1632108d9d709ff5bd7cc650dc65
         with:
           fase: ordine
           cartella: ${{ runner.temp }}/collaudo
@@ -110,7 +110,7 @@ jobs:
         with:
           name: collaudo-ordine
           path: ${{ runner.temp }}/collaudo
-      - uses: collaudoio/azione@3b1877cf0c6fc8ebc0a6109e4c911d3cdad4bc17
+      - uses: collaudoio/azione@6a80878fc43a1632108d9d709ff5bd7cc650dc65
         with:
           fase: esegui
           cartella: ${{ runner.temp }}/collaudo
@@ -137,7 +137,7 @@ jobs:
         with:
           name: collaudo-fatti
           path: ${{ runner.temp }}/collaudo
-      - uses: collaudoio/azione@3b1877cf0c6fc8ebc0a6109e4c911d3cdad4bc17
+      - uses: collaudoio/azione@6a80878fc43a1632108d9d709ff5bd7cc650dc65
         with:
           fase: spedisci
           cartella: ${{ runner.temp }}/collaudo
